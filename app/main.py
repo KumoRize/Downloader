@@ -1,7 +1,9 @@
 """FastAPI app: batch video downloads and album-cover downloads (max 10 links each)."""
 from __future__ import annotations
 
+import base64
 import os
+import secrets
 import shutil
 import time
 import uuid
@@ -9,8 +11,8 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import httpx
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -23,6 +25,28 @@ FILE_TTL_SECONDS = 3600
 WORKERS = 4
 
 app = FastAPI(title="Downloader")
+
+
+def _password_ok(header: str, password: str) -> bool:
+    """Check an HTTP Basic Authorization header. Any username is accepted."""
+    scheme, _, encoded = header.partition(" ")
+    if scheme.lower() != "basic":
+        return False
+    try:
+        _, _, given = base64.b64decode(encoded).decode("utf-8").partition(":")
+    except (ValueError, UnicodeDecodeError):
+        return False
+    return secrets.compare_digest(given.encode(), password.encode())
+
+
+@app.middleware("http")
+async def require_password(request: Request, call_next):
+    # Protection is on only when SITE_PASSWORD is set (it is unset for local dev and tests).
+    password = os.environ.get("SITE_PASSWORD", "")
+    if password and not _password_ok(request.headers.get("authorization", ""), password):
+        return Response("Password required.", status_code=401,
+                        headers={"WWW-Authenticate": 'Basic realm="Downloader", charset="UTF-8"'})
+    return await call_next(request)
 
 
 class VideoBatch(BaseModel):

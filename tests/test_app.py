@@ -101,3 +101,24 @@ def test_cover_endpoint(client, monkeypatch):
 
 def test_file_route_blocks_traversal(client):
     assert client.get("/files/x/..%2F..%2Fetc%2Fpasswd").status_code == 404
+
+
+def test_password_required_when_set(client, monkeypatch):
+    import base64
+    monkeypatch.setenv("SITE_PASSWORD", "s3cret")
+
+    def auth(pw):
+        return {"Authorization": "Basic " + base64.b64encode(f"me:{pw}".encode()).decode()}
+
+    r = client.get("/")
+    assert r.status_code == 401 and "Basic" in r.headers["www-authenticate"]
+    assert client.get("/", headers=auth("wrong")).status_code == 401
+    assert client.get("/", headers={"Authorization": "Bearer s3cret"}).status_code == 401
+    assert client.get("/", headers={"Authorization": "Basic !!!"}).status_code == 401
+    assert client.get("/", headers=auth("s3cret")).status_code == 200
+    assert client.post("/api/video", json={"urls": []}).status_code == 401
+
+
+def test_no_password_when_unset(client, monkeypatch):
+    monkeypatch.delenv("SITE_PASSWORD", raising=False)
+    assert client.get("/").status_code == 200

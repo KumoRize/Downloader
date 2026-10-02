@@ -12,6 +12,12 @@ uvicorn app.main:app --port 8000    # open http://localhost:8000
 pytest -q                           # 19 tests, no network needed
 ```
 
+## Password
+
+Set the `SITE_PASSWORD` environment variable to require a password. The browser shows a login box;
+type anything as the username and the password in the password field. With no `SITE_PASSWORD` set
+(local use, tests) the site is open.
+
 ## API
 
 | Method | Path | Body |
