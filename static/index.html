@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Downloader</title>
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--text:#16181d;--muted:#5d6470;--line:#dde1e7;--accent:#2f6fed;--ok:#1a7f4b;--err:#c0392b}
+@media (prefers-color-scheme:dark){:root{--bg:#111318;--card:#1a1d24;--text:#e8eaee;--muted:#9aa1ad;--line:#2b2f38;--accent:#5b8cff;--ok:#4ac18a;--err:#ff7b6e}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:16px/1.5 system-ui,sans-serif}
+main{max-width:720px;margin:0 auto;padding:24px 16px}
+h1{font-size:1.6rem;margin:0 0 4px}
+.sub{color:var(--muted);margin:0 0 20px}
+.tabs{display:flex;gap:8px;margin-bottom:12px}
+.tabs button{flex:1;padding:10px;border:1px solid var(--line);background:var(--card);color:var(--text);border-radius:10px;font-weight:600;cursor:pointer}
+.tabs button[aria-selected=true]{border-color:var(--accent);color:var(--accent)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px}
+textarea{width:100%;min-height:170px;padding:10px;border:1px solid var(--line);border-radius:10px;background:transparent;color:inherit;font:14px ui-monospace,monospace;resize:vertical}
+.row{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-top:10px;flex-wrap:wrap}
+.count{color:var(--muted);font-size:14px}.count.over{color:var(--err);font-weight:600}
+.go{padding:10px 20px;border:0;border-radius:10px;background:var(--accent);color:#fff;font-weight:600;cursor:pointer}
+.go:disabled{opacity:.5;cursor:wait}
+.note{color:var(--muted);font-size:13px;margin:10px 0 0}
+ul{list-style:none;padding:0;margin:16px 0 0;display:grid;gap:8px}
+li{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px 12px;display:flex;gap:12px;align-items:center}
+li img{width:56px;height:56px;border-radius:6px;object-fit:cover}
+li .info{flex:1;min-width:0}
+li .url{font-size:12px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+li .err{color:var(--err);font-size:13px}
+li a{color:var(--ok);font-weight:600;white-space:nowrap}
+</style>
+</head>
+<body>
+<main>
+  <h1>Downloader</h1>
+  <p class="sub">Paste up to 10 links, one per line.</p>
+  <div class="tabs" role="tablist">
+    <button role="tab" aria-selected="true" data-mode="video">Videos</button>
+    <button role="tab" aria-selected="false" data-mode="music">Album covers</button>
+  </div>
+  <div class="card">
+    <textarea id="links" placeholder="https://www.youtube.com/watch?v=...&#10;https://www.tiktok.com/@user/video/..."></textarea>
+    <div class="row">
+      <label id="audioOpt"><input type="checkbox" id="audio"> Audio only (MP3)</label>
+      <span class="count" id="count">0 / 10 links</span>
+      <button class="go" id="go">Download</button>
+    </div>
+    <p class="note" id="note">YouTube, Instagram, TikTok, Pinterest. Public posts only.</p>
+  </div>
+  <ul id="results"></ul>
+</main>
+<script>
+const MAX = 10;
+const NOTES = {
+  video: "YouTube, Instagram, TikTok, Pinterest. Public posts only.",
+  music: "Spotify and Apple Music track or album links. Saves the album cover in full size."
+};
+const PH = {
+  video: "https://www.youtube.com/watch?v=...\nhttps://www.tiktok.com/@user/video/...",
+  music: "https://open.spotify.com/track/...\nhttps://music.apple.com/us/album/.../123?i=456"
+};
+let mode = "video";
+const $ = id => document.getElementById(id);
+
+function links() {
+  return [...new Set($("links").value.split(/\s+/).map(s => s.trim()).filter(Boolean))];
+}
+function updateCount() {
+  const n = links().length;
+  $("count").textContent = `${n} / ${MAX} links`;
+  $("count").classList.toggle("over", n > MAX);
+  $("go").disabled = n === 0 || n > MAX;
+}
+document.querySelectorAll(".tabs button").forEach(b => b.onclick = () => {
+  mode = b.dataset.mode;
+  document.querySelectorAll(".tabs button").forEach(x => x.setAttribute("aria-selected", x === b));
+  $("audioOpt").style.visibility = mode === "video" ? "visible" : "hidden";
+  $("note").textContent = NOTES[mode];
+  $("links").placeholder = PH[mode];
+  $("results").innerHTML = "";
+});
+$("links").addEventListener("input", updateCount);
+
+$("go").onclick = async () => {
+  const urls = links();
+  const go = $("go");
+  go.disabled = true; go.textContent = "Working…";
+  $("results").innerHTML = "";
+  try {
+    const endpoint = mode === "video" ? "/api/video" : "/api/music/covers";
+    const body = mode === "video" ? {urls, audio_only: $("audio").checked} : {urls};
+    const r = await fetch(endpoint, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)});
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.detail || "Request failed");
+    data.results.forEach(render);
+  } catch (e) {
+    render({url: "", ok: false, error: e.message});
+  } finally {
+    go.textContent = "Download"; updateCount();
+  }
+};
+
+function render(res) {
+  const li = document.createElement("li");
+  if (res.ok && mode === "music") {
+    const img = document.createElement("img");
+    img.src = res.download_url; img.alt = "";
+    li.append(img);
+  }
+  const info = document.createElement("div"); info.className = "info";
+  const title = document.createElement("div");
+  title.textContent = res.ok ? (res.artist ? `${res.artist} – ${res.title}` : res.title || res.file) : "Failed";
+  const url = document.createElement("div"); url.className = "url"; url.textContent = res.url;
+  info.append(title, url);
+  if (!res.ok) { const e = document.createElement("div"); e.className = "err"; e.textContent = res.error; info.append(e); }
+  li.append(info);
+  if (res.ok) {
+    const a = document.createElement("a");
+    a.href = res.download_url; a.download = res.file; a.textContent = "Save";
+    li.append(a);
+  }
+  $("results").append(li);
+}
+updateCount();
+</script>
+</body>
+</html>
