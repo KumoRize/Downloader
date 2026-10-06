@@ -9,14 +9,25 @@ links (up to 10 at once, Apple artwork at up to 3000×3000).
 ```bash
 pip install -r requirements.txt     # ffmpeg must also be installed (merging video/audio, MP3)
 uvicorn app.main:app --port 8000    # open http://localhost:8000
-pytest -q                           # 19 tests, no network needed
+pytest -q                           # no network needed
 ```
 
 ## Password
 
-Set the `SITE_PASSWORD` environment variable to require a password. The browser shows a login box;
-type anything as the username and the password in the password field. With no `SITE_PASSWORD` set
-(local use, tests) the site is open.
+Set the `SITE_PASSWORD` environment variable to require a password. Visitors see a sign-in screen
+and stay signed in for 30 days; changing the password signs everyone out. After 10 wrong passwords
+in 15 minutes, sign-in pauses for that visitor. With no `SITE_PASSWORD` set (local use, tests) the site is open.
+
+## Install as an app
+
+The site is a web app (PWA), so it can be added to a phone's home screen and opens full screen.
+
+- **Android (Chrome):** tap **Install** in the top bar, or menu → **Add to Home screen**. Once installed,
+  "Downloader" appears in the share sheet: share a TikTok/YouTube/Instagram link to it and the link is filled in.
+- **iPhone/iPad (Safari):** Share → **Add to Home Screen**.
+- **Desktop (Chrome/Edge):** the install icon in the address bar.
+
+Files from a batch can be saved one by one or together with **Save all (ZIP)**.
 
 ## API
 
@@ -25,6 +36,8 @@ type anything as the username and the password in the password field. With no `S
 | POST | `/api/video` | `{"urls": [...≤10], "audio_only": false}` |
 | POST | `/api/music/covers` | `{"urls": [...≤10]}` |
 | GET | `/files/{batch_id}/{name}` | serves a finished file |
+| GET | `/files/{batch_id}/all.zip` | every finished file in a batch as one ZIP |
+| POST | `/api/login` | `{"password": "..."}` sets the sign-in cookie |
 
 Each link gets its own result (`ok`, `download_url` or `error`), so one bad link never fails the batch.
 Duplicate links are removed. More than 10 links returns HTTP 400. Files are deleted after 1 hour.

@@ -2,127 +2,394 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#2547d0" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#18286e" media="(prefers-color-scheme: dark)">
+<meta name="description" content="Save public videos and album covers, up to 10 links at a time.">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Downloader">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icons/favicon-32.png">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="/app.css">
 <title>Downloader</title>
 <style>
-:root{--bg:#f6f7f9;--card:#fff;--text:#16181d;--muted:#5d6470;--line:#dde1e7;--accent:#2f6fed;--ok:#1a7f4b;--err:#c0392b}
-@media (prefers-color-scheme:dark){:root{--bg:#111318;--card:#1a1d24;--text:#e8eaee;--muted:#9aa1ad;--line:#2b2f38;--accent:#5b8cff;--ok:#4ac18a;--err:#ff7b6e}}
-*{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--text);font:16px/1.5 system-ui,sans-serif}
-main{max-width:720px;margin:0 auto;padding:24px 16px}
-h1{font-size:1.6rem;margin:0 0 4px}
-.sub{color:var(--muted);margin:0 0 20px}
-.tabs{display:flex;gap:8px;margin-bottom:12px}
-.tabs button{flex:1;padding:10px;border:1px solid var(--line);background:var(--card);color:var(--text);border-radius:10px;font-weight:600;cursor:pointer}
-.tabs button[aria-selected=true]{border-color:var(--accent);color:var(--accent)}
-.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px}
-textarea{width:100%;min-height:170px;padding:10px;border:1px solid var(--line);border-radius:10px;background:transparent;color:inherit;font:14px ui-monospace,monospace;resize:vertical}
-.row{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-top:10px;flex-wrap:wrap}
-.count{color:var(--muted);font-size:14px}.count.over{color:var(--err);font-weight:600}
-.go{padding:10px 20px;border:0;border-radius:10px;background:var(--accent);color:#fff;font-weight:600;cursor:pointer}
-.go:disabled{opacity:.5;cursor:wait}
-.note{color:var(--muted);font-size:13px;margin:10px 0 0}
-ul{list-style:none;padding:0;margin:16px 0 0;display:grid;gap:8px}
-li{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px 12px;display:flex;gap:12px;align-items:center}
-li img{width:56px;height:56px;border-radius:6px;object-fit:cover}
-li .info{flex:1;min-width:0}
-li .url{font-size:12px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-li .err{color:var(--err);font-size:13px}
-li a{color:var(--ok);font-weight:600;white-space:nowrap}
+/* App shell: sticky top bar, one column of cards, a bottom action bar on phones. */
+.bar {
+  position: sticky; top: 0; z-index: 5;
+  padding: calc(10px + var(--safe-top)) 16px 10px;
+  background: var(--bar); color: var(--bar-ink);
+  display: flex; align-items: center; gap: 12px;
+}
+.bar img { width: 32px; height: 32px; border-radius: 9px; box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--bar-ink) 35%, transparent); }
+.bar h1 { font-size: 1.2rem; flex: 1; }
+.bar .icon-btn {
+  min-height: 38px; padding: 0 12px; border-radius: 10px; border: 0; font-weight: 600; font-size: 14px;
+  background: color-mix(in srgb, var(--bar-ink) 16%, transparent); color: var(--bar-ink);
+  display: inline-flex; align-items: center; gap: 6px;
+}
+.bar .icon-btn svg { width: 18px; height: 18px; }
+
+main { max-width: 640px; margin: 0 auto; padding: 16px 16px calc(110px + var(--safe-bottom)); display: grid; gap: 16px; }
+
+.tip {
+  background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px;
+  display: flex; gap: 12px; align-items: flex-start; font-size: 14px;
+}
+.tip p { flex: 1; color: var(--muted); }
+.tip strong { color: var(--ink); }
+.tip button { border: 0; background: none; color: var(--muted); font-size: 20px; line-height: 1; padding: 2px 4px; }
+
+.seg { display: grid; grid-template-columns: 1fr 1fr; background: var(--chip); border-radius: 12px; padding: 4px; gap: 4px; }
+.seg button { min-height: 40px; border: 0; border-radius: 9px; background: transparent; font-weight: 600; color: var(--muted); }
+.seg button[aria-selected="true"] { background: var(--surface); color: var(--ink); box-shadow: 0 1px 2px rgb(0 0 0 / .08); }
+
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 14px; display: grid; gap: 12px; }
+textarea {
+  width: 100%; min-height: 150px; resize: vertical; padding: 12px; border-radius: 12px;
+  border: 1px solid var(--line); background: var(--bg); font: 14px/1.6 var(--mono);
+}
+.tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.tools .grow { flex: 1; }
+.count { font: 500 13px var(--mono); font-variant-numeric: tabular-nums; color: var(--muted); }
+.count.over { color: var(--err); }
+.small { min-height: 36px; padding: 0 12px; font-size: 14px; border-radius: 10px; }
+.format { display: inline-grid; grid-template-columns: auto auto; background: var(--chip); border-radius: 10px; padding: 3px; gap: 3px; }
+.format button { min-height: 32px; padding: 0 12px; border: 0; border-radius: 8px; background: transparent; font: 500 13px var(--mono); color: var(--muted); }
+.format button[aria-pressed="true"] { background: var(--surface); color: var(--ink); }
+.hint { font-size: 13px; color: var(--muted); }
+
+.results { display: grid; gap: 10px; }
+.results-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.results-head h2 { font-size: 1.1rem; flex: 1; }
+.results-head .when { font-size: 13px; color: var(--muted); }
+ul.rows { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.row {
+  background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 10px 12px;
+  display: grid; grid-template-columns: 52px minmax(0, 1fr) auto; gap: 12px; align-items: center;
+}
+.thumb {
+  width: 52px; height: 52px; border-radius: 10px; background: var(--chip); object-fit: cover;
+  display: grid; place-items: center; font: 500 10px/1 var(--mono); letter-spacing: .04em; text-transform: uppercase; color: var(--muted);
+}
+.meta { min-width: 0; }
+.name { font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.url { font: 12px var(--mono); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.err { font-size: 13px; color: var(--err); overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.status { font-size: 13px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+.save { min-height: 38px; padding: 0 14px; font-size: 14px; border-radius: 10px; }
+
+.empty { text-align: center; color: var(--muted); font-size: 14px; padding: 8px 0; }
+.sites { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; margin-top: 8px; }
+.sites span { background: var(--chip); border-radius: 999px; padding: 4px 10px; font: 500 12px var(--mono); color: var(--ink); }
+
+.dock {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 5;
+  padding: 12px 16px calc(12px + var(--safe-bottom));
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+  border-top: 1px solid var(--line);
+}
+.dock .btn { width: 100%; max-width: 608px; margin: 0 auto; display: flex; min-height: 52px; font-size: 16px; }
+
+.menu { position: relative; }
+.menu-pop {
+  position: absolute; right: 0; top: calc(100% + 8px); min-width: 180px; padding: 6px;
+  background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: 12px;
+  box-shadow: 0 8px 24px rgb(0 0 0 / .18); display: grid;
+}
+.menu-pop button { text-align: left; border: 0; background: none; padding: 10px 12px; border-radius: 8px; font-size: 15px; }
+.menu-pop button:hover { background: var(--chip); }
 </style>
 </head>
 <body>
-<main>
+<header class="bar">
+  <img src="/icons/icon-192.png" alt="">
   <h1>Downloader</h1>
-  <p class="sub">Paste up to 10 links, one per line.</p>
-  <div class="tabs" role="tablist">
-    <button role="tab" aria-selected="true" data-mode="video">Videos</button>
-    <button role="tab" aria-selected="false" data-mode="music">Album covers</button>
-  </div>
-  <div class="card">
-    <textarea id="links" placeholder="https://www.youtube.com/watch?v=...&#10;https://www.tiktok.com/@user/video/..."></textarea>
-    <div class="row">
-      <label id="audioOpt"><input type="checkbox" id="audio"> Audio only (MP3)</label>
-      <span class="count" id="count">0 / 10 links</span>
-      <button class="go" id="go">Download</button>
+  <button class="icon-btn" id="install" type="button" hidden>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>
+    Install
+  </button>
+  <div class="menu">
+    <button class="icon-btn" id="menuBtn" type="button" aria-haspopup="true" aria-expanded="false" aria-label="More">
+      <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>
+    </button>
+    <div class="menu-pop" id="menu" hidden>
+      <button type="button" id="logout">Sign out</button>
     </div>
-    <p class="note" id="note">YouTube, Instagram, TikTok, Pinterest. Public posts only.</p>
   </div>
-  <ul id="results"></ul>
+</header>
+
+<main>
+  <div class="tip" id="iosTip" hidden>
+    <p><strong>Add to your Home Screen.</strong> Tap the Share button in Safari, then <strong>Add to Home Screen</strong>, to open Downloader like an app.</p>
+    <button type="button" id="iosTipClose" aria-label="Dismiss">×</button>
+  </div>
+
+  <div class="seg" role="tablist" aria-label="What to download">
+    <button role="tab" id="tab-video" data-mode="video" aria-selected="true">Videos</button>
+    <button role="tab" id="tab-music" data-mode="music" aria-selected="false">Album covers</button>
+  </div>
+
+  <section class="card" aria-labelledby="tab-video">
+    <textarea id="links" spellcheck="false" autocapitalize="off" autocorrect="off" aria-label="Links, one per line"></textarea>
+    <div class="tools">
+      <button class="btn small" id="paste" type="button">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="3" width="8" height="4" rx="1"/><path d="M16 5h2a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h2"/></svg>
+        Paste
+      </button>
+      <button class="btn small" id="clear" type="button">Clear</button>
+      <span class="grow"></span>
+      <div class="format" id="format" role="group" aria-label="File type">
+        <button type="button" data-audio="false" aria-pressed="true">MP4</button>
+        <button type="button" data-audio="true" aria-pressed="false">MP3</button>
+      </div>
+      <span class="count" id="count">0 / 10</span>
+    </div>
+    <p class="hint" id="hint"></p>
+  </section>
+
+  <section class="results" id="results" aria-live="polite">
+    <div class="empty" id="empty">
+      <p>Paste up to 10 links above, one per line.</p>
+      <div class="sites" id="sites"></div>
+    </div>
+  </section>
 </main>
+
+<div class="dock">
+  <button class="btn primary" id="go" type="button" disabled>Download</button>
+</div>
+
 <script>
 const MAX = 10;
-const NOTES = {
-  video: "YouTube, Instagram, TikTok, Pinterest. Public posts only.",
-  music: "Spotify and Apple Music track or album links. Saves the album cover in full size."
+const KEEP_MS = 55 * 60 * 1000;   // files are deleted after 1 hour on the server
+const MODES = {
+  video: {
+    endpoint: "/api/video",
+    placeholder: "https://www.tiktok.com/@user/video/…\nhttps://youtu.be/…",
+    hint: "Public posts only. Files are kept for 1 hour.",
+    sites: ["YouTube", "Instagram", "TikTok", "Pinterest"],
+  },
+  music: {
+    endpoint: "/api/music/covers",
+    placeholder: "https://open.spotify.com/track/…\nhttps://music.apple.com/us/album/…",
+    hint: "Saves the album cover. Song audio is copy-protected and can't be downloaded.",
+    sites: ["Spotify", "Apple Music"],
+  },
 };
-const PH = {
-  video: "https://www.youtube.com/watch?v=...\nhttps://www.tiktok.com/@user/video/...",
-  music: "https://open.spotify.com/track/...\nhttps://music.apple.com/us/album/.../123?i=456"
-};
+const TAGS = { youtube: "YT", instagram: "Insta", tiktok: "TikTok", pinterest: "Pin", spotify: "Spotify", apple_music: "Apple" };
+const URL_RE = /https?:\/\/[^\s<>"']+/g;
+const MUSIC_RE = /(open\.spotify\.com|spotify\.link|music\.apple\.com)/i;
+
+const $ = (id) => document.getElementById(id);
 let mode = "video";
-const $ = id => document.getElementById(id);
+let audioOnly = false;
+let busy = false;
+
+const store = {
+  get(k) { try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
+  del(k) { try { localStorage.removeItem(k); } catch {} },
+};
 
 function links() {
-  return [...new Set($("links").value.split(/\s+/).map(s => s.trim()).filter(Boolean))];
+  return [...new Set(($("links").value.match(URL_RE) || []).map((u) => u.replace(/[),.]+$/, "")))];
 }
-function updateCount() {
+
+function update() {
   const n = links().length;
-  $("count").textContent = `${n} / ${MAX} links`;
+  $("count").textContent = `${n} / ${MAX}`;
   $("count").classList.toggle("over", n > MAX);
-  $("go").disabled = n === 0 || n > MAX;
-}
-document.querySelectorAll(".tabs button").forEach(b => b.onclick = () => {
-  mode = b.dataset.mode;
-  document.querySelectorAll(".tabs button").forEach(x => x.setAttribute("aria-selected", x === b));
-  $("audioOpt").style.visibility = mode === "video" ? "visible" : "hidden";
-  $("note").textContent = NOTES[mode];
-  $("links").placeholder = PH[mode];
-  $("results").innerHTML = "";
-});
-$("links").addEventListener("input", updateCount);
-
-$("go").onclick = async () => {
-  const urls = links();
   const go = $("go");
-  go.disabled = true; go.textContent = "Working…";
-  $("results").innerHTML = "";
-  try {
-    const endpoint = mode === "video" ? "/api/video" : "/api/music/covers";
-    const body = mode === "video" ? {urls, audio_only: $("audio").checked} : {urls};
-    const r = await fetch(endpoint, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)});
-    const data = await r.json();
-    if (!r.ok) throw new Error(data.detail || "Request failed");
-    data.results.forEach(render);
-  } catch (e) {
-    render({url: "", ok: false, error: e.message});
-  } finally {
-    go.textContent = "Download"; updateCount();
+  go.disabled = busy || n === 0 || n > MAX;
+  if (!busy) {
+    go.textContent = n > MAX ? `Remove ${n - MAX} link${n - MAX > 1 ? "s" : ""}`
+      : n === 0 ? "Download"
+      : mode === "music" ? `Save ${n} cover${n > 1 ? "s" : ""}`
+      : `Download ${n} ${audioOnly ? "MP3" : "video"}${n > 1 ? "s" : ""}`;
   }
-};
-
-function render(res) {
-  const li = document.createElement("li");
-  if (res.ok && mode === "music") {
-    const img = document.createElement("img");
-    img.src = res.download_url; img.alt = "";
-    li.append(img);
-  }
-  const info = document.createElement("div"); info.className = "info";
-  const title = document.createElement("div");
-  title.textContent = res.ok ? (res.artist ? `${res.artist} – ${res.title}` : res.title || res.file) : "Failed";
-  const url = document.createElement("div"); url.className = "url"; url.textContent = res.url;
-  info.append(title, url);
-  if (!res.ok) { const e = document.createElement("div"); e.className = "err"; e.textContent = res.error; info.append(e); }
-  li.append(info);
-  if (res.ok) {
-    const a = document.createElement("a");
-    a.href = res.download_url; a.download = res.file; a.textContent = "Save";
-    li.append(a);
-  }
-  $("results").append(li);
 }
-updateCount();
+
+function setMode(next) {
+  mode = next;
+  document.querySelectorAll(".seg button").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.mode === mode)));
+  $("links").placeholder = MODES[mode].placeholder;
+  $("hint").textContent = MODES[mode].hint;
+  $("format").hidden = mode !== "video";
+  $("sites").replaceChildren(...MODES[mode].sites.map((s) => Object.assign(document.createElement("span"), { textContent: s })));
+  store.set("mode", mode);
+  update();
+}
+
+function setAudio(value) {
+  audioOnly = value;
+  document.querySelectorAll("#format button").forEach((b) => b.setAttribute("aria-pressed", String((b.dataset.audio === "true") === audioOnly)));
+  store.set("audioOnly", audioOnly);
+  update();
+}
+
+function el(tag, props = {}, ...children) {
+  const node = Object.assign(document.createElement(tag), props);
+  node.append(...children.filter(Boolean));
+  return node;
+}
+
+function shortUrl(u) { return u.replace(/^https?:\/\/(www\.)?/, ""); }
+
+function row(item, batchMode) {
+  const li = el("li", { className: "row" });
+  let thumb;
+  if (item.ok && batchMode === "music") {
+    thumb = el("img", { className: "thumb", src: item.download_url, alt: "", loading: "lazy" });
+  } else {
+    thumb = el("div", { className: "thumb", textContent: TAGS[item.platform] || "Link" });
+  }
+  const title = item.pending ? "Working…"
+    : item.ok ? (item.artist ? `${item.artist} – ${item.title}` : item.title || item.file)
+    : "Couldn't download";
+  const meta = el("div", { className: "meta" },
+    el("div", { className: "name", textContent: title }),
+    el("div", { className: "url", textContent: shortUrl(item.url) }),
+    item.error ? el("div", { className: "err", textContent: item.error }) : null);
+  let action = el("span");
+  if (item.pending) action = el("span", { className: "status" }, el("span", { className: "spinner" }));
+  else if (item.ok) action = el("a", { className: "btn save", href: item.download_url, download: item.file, textContent: "Save" });
+  li.append(thumb, meta, action);
+  return li;
+}
+
+function renderResults(batch) {
+  const box = $("results");
+  if (!batch) { box.replaceChildren($("empty")); $("empty").hidden = false; return; }
+  const ok = batch.results.filter((r) => r.ok).length;
+  const head = el("div", { className: "results-head" },
+    el("h2", { textContent: batch.pending ? `Working on ${batch.results.length} link${batch.results.length > 1 ? "s" : ""}` : `${ok} of ${batch.results.length} ready` }),
+    batch.at && !batch.pending ? el("span", { className: "when", textContent: `Kept until ${new Date(batch.at + 60 * 60 * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` }) : null);
+  if (!batch.pending && ok > 1) {
+    head.append(el("a", { className: "btn small primary", href: `/files/${batch.batch_id}/all.zip`, textContent: "Save all (ZIP)" }));
+  }
+  const list = el("ul", { className: "rows" }, ...batch.results.map((r) => row(r, batch.mode)));
+  $("empty").hidden = true;
+  box.replaceChildren(head, list, $("empty"));
+}
+
+async function run() {
+  const urls = links();
+  if (!urls.length || urls.length > MAX || busy) return;
+  busy = true;
+  const go = $("go");
+  go.disabled = true;
+  go.replaceChildren(el("span", { className: "spinner" }), " Working… keep this screen open");
+  const batchMode = mode;
+  renderResults({ mode: batchMode, pending: true, results: urls.map((url) => ({ url, pending: true, platform: guessPlatform(url) })) });
+  try {
+    const body = batchMode === "video" ? { urls, audio_only: audioOnly } : { urls };
+    const r = await fetch(MODES[batchMode].endpoint, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), credentials: "same-origin",
+    });
+    if (r.status === 401) { location.href = "/login?next=/"; return; }
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(data.detail || `The server answered with an error (${r.status}). Try again.`);
+    const batch = { ...data, mode: batchMode, at: Date.now() };
+    store.set("lastBatch", batch);
+    renderResults(batch);
+    if (batch.results.every((x) => x.ok)) { $("links").value = ""; store.del("draft"); }
+  } catch (e) {
+    const message = e instanceof TypeError ? "No connection to the server. Check your internet and try again." : e.message;
+    renderResults({ mode: batchMode, results: urls.map((url) => ({ url, ok: false, error: message, platform: guessPlatform(url) })) });
+  } finally {
+    busy = false;
+    update();
+  }
+}
+
+function guessPlatform(url) {
+  const host = (() => { try { return new URL(url).hostname; } catch { return ""; } })();
+  if (/youtu/.test(host)) return "youtube";
+  if (/instagram/.test(host)) return "instagram";
+  if (/tiktok/.test(host)) return "tiktok";
+  if (/pinterest|pin\.it/.test(host)) return "pinterest";
+  if (/spotify/.test(host)) return "spotify";
+  if (/apple/.test(host)) return "apple_music";
+  return null;
+}
+
+function addLinks(text) {
+  const found = text.match(URL_RE) || [];
+  if (!found.length) return false;
+  const current = $("links").value.trim();
+  $("links").value = (current ? current + "\n" : "") + found.join("\n");
+  if (found.every((u) => MUSIC_RE.test(u))) setMode("music");
+  else if (!found.some((u) => MUSIC_RE.test(u))) setMode("video");
+  store.set("draft", $("links").value);
+  update();
+  return true;
+}
+
+// --- wiring ---
+document.querySelectorAll(".seg button").forEach((b) => b.addEventListener("click", () => setMode(b.dataset.mode)));
+document.querySelectorAll("#format button").forEach((b) => b.addEventListener("click", () => setAudio(b.dataset.audio === "true")));
+$("links").addEventListener("input", () => { store.set("draft", $("links").value); update(); });
+$("go").addEventListener("click", run);
+$("clear").addEventListener("click", () => { $("links").value = ""; store.del("draft"); update(); $("links").focus(); });
+$("paste").addEventListener("click", async () => {
+  try {
+    const text = await navigator.clipboard.readText();
+    if (!addLinks(text)) $("hint").textContent = "No links found on your clipboard.";
+  } catch {
+    $("links").focus();
+    $("hint").textContent = "Long-press the box and choose Paste.";
+  }
+});
+$("menuBtn").addEventListener("click", (e) => {
+  e.stopPropagation();
+  const open = $("menu").hidden;
+  $("menu").hidden = !open;
+  $("menuBtn").setAttribute("aria-expanded", String(open));
+});
+document.addEventListener("click", () => { $("menu").hidden = true; $("menuBtn").setAttribute("aria-expanded", "false"); });
+$("logout").addEventListener("click", async () => {
+  await fetch("/api/logout", { method: "POST", credentials: "same-origin" }).catch(() => {});
+  location.href = "/login";
+});
+
+// Install button (Chrome, Edge, Android) and Home Screen tip (iPhone, iPad).
+let installEvent = null;
+window.addEventListener("beforeinstallprompt", (e) => { e.preventDefault(); installEvent = e; $("install").hidden = false; });
+$("install").addEventListener("click", async () => {
+  if (!installEvent) return;
+  installEvent.prompt();
+  await installEvent.userChoice.catch(() => {});
+  installEvent = null;
+  $("install").hidden = true;
+});
+window.addEventListener("appinstalled", () => { $("install").hidden = true; });
+const standalone = matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
+const ios = /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+if (ios && !standalone && !store.get("iosTipDismissed")) $("iosTip").hidden = false;
+$("iosTipClose").addEventListener("click", () => { $("iosTip").hidden = true; store.set("iosTipDismissed", true); });
+
+if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
+
+// --- start-up state ---
+(function start() {
+  setAudio(store.get("audioOnly") === true);
+  const params = new URLSearchParams(location.search);
+  setMode(params.get("tab") === "music" ? "music" : params.get("tab") === "video" ? "video" : (store.get("mode") === "music" ? "music" : "video"));
+  const draft = store.get("draft");
+  if (typeof draft === "string") $("links").value = draft;
+  // Links shared into the app from another app (Android share sheet).
+  const shared = [params.get("url"), params.get("text"), params.get("title")].filter(Boolean).join(" ");
+  if (shared) addLinks(shared);
+  if (params.toString()) history.replaceState(null, "", "/");
+  const last = store.get("lastBatch");
+  if (last && Date.now() - last.at < KEEP_MS) renderResults(last); else { store.del("lastBatch"); renderResults(null); }
+  update();
+})();
 </script>
 </body>
 </html>

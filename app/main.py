@@ -1,22 +1,24 @@
 """FastAPI app: batch video downloads and album-cover downloads (max 10 links each)."""
 from __future__ import annotations
 
-import base64
 import os
+import re
 import secrets
 import shutil
 import time
 import uuid
+import zipfile
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from urllib.parse import quote
 
 import httpx
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import services
+from . import auth, services
 from .links import MUSIC_HOSTS, VIDEO_HOSTS, LinkError, parse_batch
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -27,26 +29,55 @@ WORKERS = 4
 app = FastAPI(title="Downloader")
 
 
-def _password_ok(header: str, password: str) -> bool:
-    """Check an HTTP Basic Authorization header. Any username is accepted."""
-    scheme, _, encoded = header.partition(" ")
-    if scheme.lower() != "basic":
-        return False
-    try:
-        _, _, given = base64.b64decode(encoded).decode("utf-8").partition(":")
-    except (ValueError, UnicodeDecodeError):
-        return False
-    return secrets.compare_digest(given.encode(), password.encode())
+login_limiter = auth.LoginLimiter()
 
 
 @app.middleware("http")
-async def require_password(request: Request, call_next):
+async def require_login(request: Request, call_next):
     # Protection is on only when SITE_PASSWORD is set (it is unset for local dev and tests).
-    password = os.environ.get("SITE_PASSWORD", "")
-    if password and not _password_ok(request.headers.get("authorization", ""), password):
-        return Response("Password required.", status_code=401,
-                        headers={"WWW-Authenticate": 'Basic realm="Downloader", charset="UTF-8"'})
-    return await call_next(request)
+    password = auth.site_password()
+    path = request.url.path
+    if not password or auth.is_public(path) or auth.is_signed_in(request.cookies.get(auth.COOKIE_NAME), password):
+        return await call_next(request)
+    if path.startswith(("/api/", "/files/")):
+        return JSONResponse({"detail": "Sign in first."}, status_code=401)
+    target = path + (f"?{request.url.query}" if request.url.query else "")
+    return RedirectResponse(f"/login?next={quote(target, safe='')}", status_code=303)
+
+
+class Login(BaseModel):
+    password: str
+
+
+@app.post("/api/login")
+def login(body: Login, request: Request, response: Response) -> dict:
+    password = auth.site_password()
+    if not password:
+        return {"ok": True}
+    client = auth.client_id(request.headers, request.client.host if request.client else "unknown")
+    wait = login_limiter.retry_after(client)
+    if wait:
+        minutes = (wait + 59) // 60
+        raise HTTPException(status_code=429, detail=f"Too many wrong passwords. Try again in {minutes} min.")
+    if not secrets.compare_digest(body.password.encode(), password.encode()):
+        login_limiter.record_failure(client)
+        raise HTTPException(status_code=401, detail="Wrong password.")
+    login_limiter.reset(client)
+    https = request.headers.get("x-forwarded-proto", request.url.scheme) == "https"
+    response.set_cookie(auth.COOKIE_NAME, auth.session_token(password), max_age=auth.COOKIE_MAX_AGE,
+                        httponly=True, secure=https, samesite="lax")
+    return {"ok": True}
+
+
+@app.post("/api/logout")
+def logout(response: Response) -> dict:
+    response.delete_cookie(auth.COOKIE_NAME)
+    return {"ok": True}
+
+
+@app.get("/login")
+def login_page():
+    return FileResponse(ROOT / "static" / "login.html")
 
 
 class VideoBatch(BaseModel):
@@ -141,6 +172,27 @@ def download_covers(batch: MusicBatch) -> dict:
     return {"batch_id": batch_id, "results": results}
 
 
+@app.get("/files/{batch_id}/all.zip")
+def get_batch_zip(batch_id: str):
+    base = DOWNLOAD_DIR.resolve()
+    folder = (base / batch_id).resolve()
+    if folder.parent != base or not folder.is_dir():
+        raise HTTPException(status_code=404, detail="Batch not found or expired.")
+    files = sorted(p for p in folder.iterdir()
+                   if p.is_file() and p.name != "all.zip" and not p.name.endswith(".part"))
+    if not files:
+        raise HTTPException(status_code=404, detail="No finished files in this batch.")
+    zip_path = folder / "all.zip"
+    if not zip_path.exists():
+        # Videos are already compressed, so store them as-is (fast, same size).
+        tmp = folder / f"all.{uuid.uuid4().hex[:8]}.part"  # unique, so two taps can't clash
+        with zipfile.ZipFile(tmp, "w", zipfile.ZIP_STORED) as zf:
+            for f in files:
+                zf.write(f, f.name)
+        tmp.replace(zip_path)
+    return FileResponse(zip_path, filename=f"downloads-{batch_id[:6]}.zip")
+
+
 @app.get("/files/{batch_id}/{name}")
 def get_file(batch_id: str, name: str):
     base = DOWNLOAD_DIR.resolve()
@@ -151,9 +203,31 @@ def get_file(batch_id: str, name: str):
     return FileResponse(path, filename=name)
 
 
+# Plain-language messages for the errors people actually hit, checked in order.
+_FRIENDLY_ERRORS = [
+    (("sign in to confirm", "not a bot"), "YouTube blocked this server (\"confirm you're not a bot\"). Try again later."),
+    (("private video", "this video is private", "private account", "is private"), "This post is private."),
+    (("login required", "requires authentication", "log in", "login_required", "cookies"), "This post can only be seen when logged in."),
+    (("age-restricted", "age restricted", "confirm your age"), "This video is age-restricted."),
+    (("max-filesize", "larger than max"), "This file is over 500 MB, so it was skipped."),
+    (("video unavailable", "not available", "has been removed", "404"), "This post is unavailable or was deleted."),
+    (("unsupported url",), "This link isn't a video page. Copy the link to the post itself."),
+    (("unable to connect", "timed out", "connection", "proxy", "network is unreachable", "name resolution"),
+     "Couldn't reach the site. Try again in a minute."),
+]
+
+
 def _short_error(e: Exception) -> str:
-    msg = str(e).replace("ERROR: ", "").strip() or type(e).__name__
-    return msg[:300]
+    raw = str(e).replace("ERROR: ", "").strip() or type(e).__name__
+    low = raw.lower()
+    for needles, message in _FRIENDLY_ERRORS:
+        if any(n in low for n in needles):
+            return message
+    # Unknown error: keep the first line, drop yt-dlp's "[site] id:" prefix and bug-report footer.
+    line = raw.splitlines()[0]
+    line = re.sub(r"^\[[^\]]+\]\s*[^:]+:\s*", "", line)
+    line = re.split(r";\s*please report", line, flags=re.I)[0]
+    return line[:160]
 
 
 app.mount("/", StaticFiles(directory=ROOT / "static", html=True), name="static")
